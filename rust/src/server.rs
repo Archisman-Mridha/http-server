@@ -60,12 +60,12 @@ where
 
           let threadHandle = tokio::spawn(async move {
             if let Err(error) = httpServerCore.handleConnection(connection).await {
-              eprintln!("Failed handling connection : {}", error)
+              eprintln!("Failed handling connection : {error}")
             }
           });
           threadHandles.push(threadHandle);
         }
-        Err(e) => println!("Connection error : {}", e),
+        Err(error) => println!("Connection error : {error}"),
       }
     }
 
@@ -92,7 +92,7 @@ impl<R> HTTPServerCore<R>
 where
   R: HTTPRouter,
 {
-  async fn handleConnection<'connection>(&self, mut connection: TcpStream) -> anyhow::Result<()> {
+  async fn handleConnection(&self, mut connection: TcpStream) -> anyhow::Result<()> {
     let mut bufReader = BufReader::new(&mut connection);
 
     let mut encodedHTTPRequest = String::new();
@@ -107,7 +107,7 @@ where
 
     let mut httpRequest: HTTPRequest = HTTPMessage::httpDecode(&encodedHTTPRequest)?;
 
-    // Read request body (if required).
+    // Read request body (if present).
     if let Some(contentLength) = httpRequest.headers.get("Content-Length") {
       let contentLength = contentLength.parse().unwrap();
 
@@ -118,11 +118,11 @@ where
       httpRequest.body = Some(httpRequestBody.leak());
     }
 
-    println!("Received encoded HTTP request : \n{}", encodedHTTPRequest);
+    println!("Received encoded HTTP request : \n{encodedHTTPRequest}");
 
     let encodedHTTPResponse = &self.handleRequest(httpRequest)?;
 
-    println!("Sending encoded HTTP response : \n{}", encodedHTTPResponse);
+    println!("Sending encoded HTTP response : \n{encodedHTTPResponse}");
     connection.write_all(encodedHTTPResponse.as_bytes())?;
     Ok(())
   }
@@ -133,10 +133,11 @@ where
   ) -> anyhow::Result<&'connection str> {
     let mut httpResponse: HTTPResponse = self.router.handle(&httpRequest);
 
-    if !httpResponse.body.is_none() {
+    if httpResponse.body.is_some() {
       if let Some(clientSupportedEncodings) = httpRequest.headers.get("Accept-Encoding") {
         let clientSupportedEncodings = clientSupportedEncodings.split(", ");
         for clientSupportedEncoding in clientSupportedEncodings {
+          #[allow(clippy::single_match)]
           match clientSupportedEncoding {
             "gzip" => {
               httpResponse.headers.insert("Content-Encoding", "gzip");

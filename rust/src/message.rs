@@ -51,7 +51,7 @@ where
     self
       .headers
       .iter()
-      .try_for_each(|(key, value)| write!(encoding, "{}: {}{}", key, value, CRLF))?;
+      .try_for_each(|(key, value)| write!(encoding, "{key}: {value}{CRLF}"))?;
     encoding.push_str(CRLF);
 
     // Encode the request-body section.
