@@ -1,12 +1,13 @@
-#![allow(non_snake_case)]
-
 use {
   archttp::{
-    message::{HTTPMessage, HTTPRequest, HTTPResponse},
-    method::HTTPMethod,
+    message::{
+      method::HTTPMethod,
+      request::HTTPRequest,
+      response::{HTTPResponse, StatusLine},
+      status_code::HTTPStatusCode,
+      HTTPMessage,
+    },
     server::{HTTPServer, HTTPServerCore},
-    start_line::StatusLine,
-    status_code::HTTPStatusCode,
     utils::ToStr,
   },
   clap::Parser,
@@ -28,11 +29,11 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
   let args = Args::parse();
 
-  let httpRouter = HTTPRouter::builder().directory(args.directory).build();
+  let http_router = HTTPRouter::builder().directory(args.directory).build();
 
-  let httpServerCore = HTTPServerCore::builder().router(httpRouter).build();
+  let http_server_core = HTTPServerCore::builder().router(http_router).build();
 
-  HTTPServer::new(httpServerCore).run().await
+  HTTPServer::new(http_server_core).run().await
 }
 
 const ECHO_ROUTE_PREFIX: &str = "/echo/";
@@ -46,22 +47,22 @@ struct HTTPRouter {
 
 impl archttp::router::HTTPRouter for HTTPRouter {
   fn handle<'connection>(&self, request: &'connection HTTPRequest) -> HTTPResponse<'connection> {
-    let path = request.startLine.requestURI.to_str();
+    let path = request.start_line.request_uri.to_str();
     match path {
-      _ if path.starts_with(ECHO_ROUTE_PREFIX) => echoRouteHandler(request),
+      _ if path.starts_with(ECHO_ROUTE_PREFIX) => echo_route_handler(request),
 
-      USER_AGENT_ROUTE => userAgentRouteHandler(request),
+      USER_AGENT_ROUTE => user_agent_route_handler(request),
 
-      _ if path.starts_with(FILES_ROUTE_PREFIX) => filesRouteHandler(request, &self.directory),
+      _ if path.starts_with(FILES_ROUTE_PREFIX) => files_route_handler(request, &self.directory),
 
       "/" => HTTPMessage::builder()
-        .startLine(StatusLine::builder().build())
+        .start_line(StatusLine::builder().build())
         .build(),
 
       _ => HTTPMessage::builder()
-        .startLine(
+        .start_line(
           StatusLine::builder()
-            .statusCode(HTTPStatusCode::NotFound)
+            .status_code(HTTPStatusCode::NotFound)
             .build(),
         )
         .build(),
@@ -69,48 +70,48 @@ impl archttp::router::HTTPRouter for HTTPRouter {
   }
 }
 
-fn echoRouteHandler<'a>(request: &'a HTTPRequest) -> HTTPResponse<'a> {
-  let path = request.startLine.requestURI.to_str();
+fn echo_route_handler<'a>(request: &'a HTTPRequest) -> HTTPResponse<'a> {
+  let path = request.start_line.request_uri.to_str();
 
-  let echoMessage = path.strip_prefix(ECHO_ROUTE_PREFIX).unwrap();
+  let echo_message = path.strip_prefix(ECHO_ROUTE_PREFIX).unwrap();
 
-  let mut httpResponse = HTTPMessage::builder()
-    .startLine(StatusLine::builder().build())
+  let mut http_response = HTTPMessage::builder()
+    .start_line(StatusLine::builder().build())
     .build();
-  httpResponse.setBody(echoMessage);
-  httpResponse
+  http_response.set_body(echo_message);
+  http_response
 }
 
-fn userAgentRouteHandler<'a>(request: &'a HTTPRequest) -> HTTPResponse<'a> {
-  let userAgent = request.headers.get("User-Agent").unwrap();
+fn user_agent_route_handler<'a>(request: &'a HTTPRequest) -> HTTPResponse<'a> {
+  let user_agent = request.headers.get("User-Agent").unwrap();
 
-  let mut httpResponse = HTTPMessage::builder()
-    .startLine(StatusLine::builder().build())
+  let mut http_response = HTTPMessage::builder()
+    .start_line(StatusLine::builder().build())
     .build();
-  httpResponse.setBody(userAgent);
-  httpResponse
+  http_response.set_body(user_agent.as_ref());
+  http_response
 }
 
-fn filesRouteHandler<'a>(request: &'a HTTPRequest, directory: &'_ str) -> HTTPResponse<'a> {
-  let path = request.startLine.requestURI.to_str();
+fn files_route_handler<'a>(request: &'a HTTPRequest, directory: &'_ str) -> HTTPResponse<'a> {
+  let path = request.start_line.request_uri.to_str();
 
-  let fileName = path.strip_prefix(FILES_ROUTE_PREFIX).unwrap();
-  let filePath = Path::new(directory).join(fileName);
+  let file_name = path.strip_prefix(FILES_ROUTE_PREFIX).unwrap();
+  let file_path = Path::new(directory).join(file_name);
 
-  let mut httpResponse = HTTPMessage::builder()
-    .startLine(StatusLine::builder().build())
+  let mut http_response = HTTPMessage::builder()
+    .start_line(StatusLine::builder().build())
     .build();
 
-  match request.startLine.method {
-    HTTPMethod::GET => match fs::read_to_string(filePath) {
-      Ok(fileContent) => {
-        httpResponse.setBody(fileContent.leak());
-        httpResponse
+  match request.start_line.method {
+    HTTPMethod::GET => match fs::read_to_string(file_path) {
+      Ok(file_content) => {
+        http_response.set_body(&file_content);
+        http_response
           .headers
           .insert("Content-Type", "application/octet-stream");
       }
 
-      Err(_) => httpResponse.startLine.statusCode = HTTPStatusCode::NotFound,
+      Err(_) => http_response.start_line.status_code = HTTPStatusCode::NotFound,
     },
 
     HTTPMethod::POST => {
@@ -118,15 +119,15 @@ fn filesRouteHandler<'a>(request: &'a HTTPRequest, directory: &'_ str) -> HTTPRe
         .create(true)
         .write(true)
         .truncate(true)
-        .open(filePath)
+        .open(file_path)
         .unwrap();
-      write!(file, "{}", request.body.unwrap_or("")).unwrap();
+      write!(file, "{}", request.body.as_deref().unwrap_or("")).unwrap();
 
-      httpResponse.startLine.statusCode = HTTPStatusCode::Created;
+      http_response.start_line.status_code = HTTPStatusCode::Created;
     }
 
-    _ => httpResponse.startLine.statusCode = HTTPStatusCode::MethodNotAllowed,
+    _ => http_response.start_line.status_code = HTTPStatusCode::MethodNotAllowed,
   }
 
-  httpResponse
+  http_response
 }

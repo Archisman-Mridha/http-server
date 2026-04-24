@@ -1,4 +1,4 @@
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy)]
 #[repr(u16)]
 pub enum HTTPStatusCode {
   // Informational status codes.
@@ -59,7 +59,7 @@ pub enum HTTPStatusCode {
 }
 
 impl HTTPStatusCode {
-  pub fn getReasonPhrase(&self) -> &str {
+  pub fn get_reason_phrase(&self) -> &str {
     match self {
       Self::Continue => "Continue",
       Self::SwitchingProtocols => "Switching Protocols",

@@ -1,6 +1,6 @@
 use {
   crate::{
-    message::{HTTPEncodable, HTTPMessage, HTTPRequest, HTTPResponse},
+    message::{request::HTTPRequest, response::HTTPResponse, HTTPEncodable, HTTPMessage},
     router::HTTPRouter,
   },
   flate2::{write::GzEncoder, Compression},
@@ -51,27 +51,27 @@ where
     */
     let listener = TcpListener::bind(self.core.address.clone()).unwrap();
 
-    let mut threadHandles: Vec<JoinHandle<()>> = Vec::new();
+    let mut thread_handles: Vec<JoinHandle<()>> = Vec::new();
 
     for stream in listener.incoming() {
       match stream {
         Ok(connection) => {
-          let httpServerCore = self.core.clone();
+          let http_server_core = self.core.clone();
 
-          let threadHandle = tokio::spawn(async move {
-            if let Err(error) = httpServerCore.handleConnection(connection).await {
+          let thread_handle = tokio::spawn(async move {
+            if let Err(error) = http_server_core.handle_connection(connection).await {
               eprintln!("Failed handling connection : {error}")
             }
           });
-          threadHandles.push(threadHandle);
+          thread_handles.push(thread_handle);
         }
         Err(error) => println!("Connection error : {error}"),
       }
     }
 
     // Wait for all the requests to be processed.
-    for threadHandle in threadHandles {
-      let _ = threadHandle.await;
+    for thread_handle in thread_handles {
+      let _ = thread_handle.await;
     }
     Ok(())
   }
@@ -92,63 +92,60 @@ impl<R> HTTPServerCore<R>
 where
   R: HTTPRouter,
 {
-  async fn handleConnection(&self, mut connection: TcpStream) -> anyhow::Result<()> {
-    let mut bufReader = BufReader::new(&mut connection);
+  async fn handle_connection(&self, mut connection: TcpStream) -> anyhow::Result<()> {
+    let mut buf_reader = BufReader::new(&mut connection);
 
-    let mut encodedHTTPRequest = String::new();
+    let mut encoded_http_request = String::new();
 
     // Read until the end of request header section.
     loop {
-      bufReader.read_line(&mut encodedHTTPRequest)?;
-      if encodedHTTPRequest.ends_with("\r\n\r\n") {
+      buf_reader.read_line(&mut encoded_http_request)?;
+      if encoded_http_request.ends_with("\r\n\r\n") {
         break;
       }
     }
 
-    let mut httpRequest: HTTPRequest = HTTPMessage::httpDecode(&encodedHTTPRequest)?;
+    let mut http_request: HTTPRequest = HTTPMessage::http_decode(&encoded_http_request)?;
 
     // Read request body (if present).
-    if let Some(contentLength) = httpRequest.headers.get("Content-Length") {
-      let contentLength = contentLength.parse().unwrap();
+    if let Some(content_length) = http_request.headers.get("Content-Length") {
+      let content_length = content_length.parse().unwrap();
 
-      let mut httpRequestBody = vec![0; contentLength];
-      bufReader.read_exact(&mut httpRequestBody).unwrap();
+      let mut http_request_body = vec![0; content_length];
+      buf_reader.read_exact(&mut http_request_body).unwrap();
 
-      let httpRequestBody = String::from_utf8_lossy(&httpRequestBody).to_string();
-      httpRequest.body = Some(httpRequestBody.leak());
+      let http_request_body = String::from_utf8(http_request_body).unwrap();
+      http_request.body = Some(http_request_body);
     }
 
-    println!("Received encoded HTTP request : \n{encodedHTTPRequest}");
+    println!("Received encoded HTTP request : \n{encoded_http_request}");
 
-    let encodedHTTPResponse = &self.handleRequest(httpRequest)?;
+    let encoded_http_response = self.handle_request(http_request)?;
 
-    println!("Sending encoded HTTP response : \n{encodedHTTPResponse}");
-    connection.write_all(encodedHTTPResponse.as_bytes())?;
+    println!("Sending encoded HTTP response : \n{encoded_http_response}");
+    connection.write_all(encoded_http_response.as_bytes())?;
     Ok(())
   }
 
-  fn handleRequest<'connection>(
-    &self,
-    httpRequest: HTTPRequest,
-  ) -> anyhow::Result<&'connection str> {
-    let mut httpResponse: HTTPResponse = self.router.handle(&httpRequest);
+  fn handle_request(&self, http_request: HTTPRequest) -> anyhow::Result<String> {
+    let mut http_response: HTTPResponse = self.router.handle(&http_request);
 
-    if httpResponse.body.is_some() {
-      if let Some(clientSupportedEncodings) = httpRequest.headers.get("Accept-Encoding") {
-        let clientSupportedEncodings = clientSupportedEncodings.split(", ");
-        for clientSupportedEncoding in clientSupportedEncodings {
+    if http_response.body.is_some() {
+      if let Some(client_supported_encodings) = http_request.headers.get("Accept-Encoding") {
+        let client_supported_encodings = client_supported_encodings.split(", ");
+        for client_supported_encoding in client_supported_encodings {
           #[allow(clippy::single_match)]
-          match clientSupportedEncoding {
+          match client_supported_encoding {
             "gzip" => {
-              httpResponse.headers.insert("Content-Encoding", "gzip");
+              http_response.headers.insert("Content-Encoding", "gzip");
 
-              let mut gzipEncoder = GzEncoder::new(Vec::new(), Compression::default());
-              gzipEncoder
-                .write_all(httpResponse.body.unwrap().as_bytes())
+              let mut gzip_encoder = GzEncoder::new(Vec::new(), Compression::default());
+              gzip_encoder
+                .write_all(http_response.body.as_deref().unwrap().as_bytes())
                 .unwrap();
-              let gzipEncoding = gzipEncoder.finish().unwrap();
+              let gzip_encoding = gzip_encoder.finish().unwrap();
 
-              httpResponse.setBody(hex::encode(&gzipEncoding).leak());
+              http_response.set_body(&hex::encode(&gzip_encoding));
 
               break;
             }
@@ -159,8 +156,8 @@ where
       }
     }
 
-    let mut encodedHTTPResponse = String::new();
-    httpResponse.httpEncode(&mut encodedHTTPResponse)?;
-    Ok(encodedHTTPResponse.leak())
+    let mut encoded_http_response = String::new();
+    http_response.http_encode(&mut encoded_http_response)?;
+    Ok(encoded_http_response)
   }
 }

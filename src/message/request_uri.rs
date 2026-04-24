@@ -42,26 +42,26 @@ pub enum HTTPRequestURI<'a> {
 }
 
 impl<'a> From<&'a str> for HTTPRequestURI<'a> {
-  fn from(requestURI: &'a str) -> Self {
-    match requestURI {
+  fn from(request_uri: &'a str) -> Self {
+    match request_uri {
       "*" => Self::Asterisk,
-      absoluteURI if isAbsoluteURI(requestURI) => Self::AbsoluteURI(absoluteURI),
-      absolutePath => Self::AbsolutePath(absolutePath),
+      absolute_uri if is_absolute_uri(request_uri) => Self::AbsoluteURI(absolute_uri),
+      absolute_path => Self::AbsolutePath(absolute_path),
     }
   }
 }
 
 // Returns whether the given request URI string is an absolute URI.
-fn isAbsoluteURI(requestURI: &str) -> bool {
-  requestURI.starts_with("http://") || requestURI.starts_with("https://")
+fn is_absolute_uri(request_uri: &str) -> bool {
+  request_uri.starts_with("http://") || request_uri.starts_with("https://")
 }
 
 impl ToStr for HTTPRequestURI<'_> {
   fn to_str(&self) -> &str {
     match self {
       Self::Asterisk => "*",
-      Self::AbsoluteURI(absoluteURI) => absoluteURI,
-      Self::AbsolutePath(absolutePath) => absolutePath,
+      Self::AbsoluteURI(absolute_uri) => absolute_uri,
+      Self::AbsolutePath(absolute_path) => absolute_path,
     }
   }
 }
