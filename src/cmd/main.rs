@@ -7,6 +7,7 @@ use {
       status_code::HTTPStatusCode,
       HTTPMessage,
     },
+    router::Trie,
     server::{HTTPServer, HTTPServerCore},
     utils::ToStr,
   },
@@ -15,8 +16,8 @@ use {
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
+    sync::Arc,
   },
-  typed_builder::TypedBuilder,
 };
 
 #[derive(Parser)]
@@ -29,7 +30,20 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
   let args = Args::parse();
 
-  let http_router = HTTPRouter::builder().directory(args.directory).build();
+  let mut http_router = Trie::default();
+
+  http_router.register("/ping", Box::new(ping_route_handler));
+  http_router.register("/echo", Box::new(echo_route_handler));
+  http_router.register("/user-agent", Box::new(user_agent_route_handler));
+
+  let directory = Arc::new(args.directory);
+  http_router.register(
+    "/files",
+    Box::new({
+      let directory = Arc::clone(&directory);
+      move |request: &HTTPRequest| -> HTTPResponse { files_route_handler(request, &directory) }
+    }),
+  );
 
   let http_server_core = HTTPServerCore::builder().router(http_router).build();
 
@@ -37,37 +51,14 @@ async fn main() -> anyhow::Result<()> {
 }
 
 const ECHO_ROUTE_PREFIX: &str = "/echo/";
-const USER_AGENT_ROUTE: &str = "/user-agent";
 const FILES_ROUTE_PREFIX: &str = "/files/";
 
-#[derive(TypedBuilder)]
-struct HTTPRouter {
-  directory: String,
-}
-
-impl archttp::router::HTTPRouter for HTTPRouter {
-  fn handle<'connection>(&self, request: &'connection HTTPRequest) -> HTTPResponse<'connection> {
-    let path = request.start_line.request_uri.to_str();
-    match path {
-      _ if path.starts_with(ECHO_ROUTE_PREFIX) => echo_route_handler(request),
-
-      USER_AGENT_ROUTE => user_agent_route_handler(request),
-
-      _ if path.starts_with(FILES_ROUTE_PREFIX) => files_route_handler(request, &self.directory),
-
-      "/" => HTTPMessage::builder()
-        .start_line(StatusLine::builder().build())
-        .build(),
-
-      _ => HTTPMessage::builder()
-        .start_line(
-          StatusLine::builder()
-            .status_code(HTTPStatusCode::NotFound)
-            .build(),
-        )
-        .build(),
-    }
-  }
+fn ping_route_handler<'a>(_: &'a HTTPRequest) -> HTTPResponse<'a> {
+  let mut http_response = HTTPMessage::builder()
+    .start_line(StatusLine::builder().build())
+    .build();
+  http_response.set_body("PONG");
+  http_response
 }
 
 fn echo_route_handler<'a>(request: &'a HTTPRequest) -> HTTPResponse<'a> {
@@ -92,7 +83,7 @@ fn user_agent_route_handler<'a>(request: &'a HTTPRequest) -> HTTPResponse<'a> {
   http_response
 }
 
-fn files_route_handler<'a>(request: &'a HTTPRequest, directory: &'_ str) -> HTTPResponse<'a> {
+fn files_route_handler<'a>(request: &'a HTTPRequest, directory: &str) -> HTTPResponse<'a> {
   let path = request.start_line.request_uri.to_str();
 
   let file_name = path.strip_prefix(FILES_ROUTE_PREFIX).unwrap();
